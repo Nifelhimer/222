@@ -1,0 +1,135 @@
+# Compute p0 for each material
+kT = 0.025852
+Eg = [1.12, 0.66, 1.424]
+GL = 10. ** 20.
+
+# Product of NaNc
+Ni[0] = (1.5 * 10. ** 10) ** 2 
+Ni[1] = (1.8 * 10. ** 6) ** 2
+Ni[2] = (2.4 * 10. ** 13) ** 2
+
+# Lifespan
+tau = [30. * 10. ** (-6.), 140. * 10. ** (-6.), 10. * 10. ** (-9.)]
+
+# Given major carrier concentration
+impurity = [10. ** 13, 10. ** 14, 10. ** 15]
+Si_p0 = numpy.empty(3)
+Ge_p0 = numpy.empty(3)
+GaAs_p0 = numpy.empty(3)
+
+# Compute minor carrier concentration
+for i in range(3):
+    Si_p0[i] = Ni[0] / impurity[i]
+    Ge_p0[i] = Ni[1] / impurity[i]
+    GaAs_p0[i] = Ni[2] / impurity[i]
+
+#print(Si_p0)
+
+# Diffusion Constant
+diff_const = [6.47, 44., 10.]
+
+# Diffusion Length
+Lp = numpy.empty(3)
+for i in range(3):
+    Lp[i] = tau[i] * diff_const[i]
+
+#donor concentration
+donor_conc = [10. * 10 ** 13, 10. * 10 ** 14, 10. * 10 ** 15]
+
+x = numpy.linspace(0,1,100)
+
+
+# Shooting method
+def shoot_bvp(f, x, u_a, u_b, rtol=1.e-5, atol=1.e-9):
+    """
+    Solve the two-point boundary value problem on the interval x\in [a,b], using a shooting method that combines 
+        scipy.integrate.solve_ivp and scipy.optimize.root_scalar and allows a range of boundary conditions
+        
+        
+    parameters:
+    -----------
+    f: calleable 
+        vector value function for righthand side of the ODE with interface f(t,u). returns ndarray of length 2
+    x: numpy array
+        coordinates array for solution  on interval [a,b] with x[0] = a, x[-1] = b
+    u_a:  numpy array (length 2)
+        provide initial boundary conditions  [u, u' ] at x=a
+    u_b:  numpy array (length 2)
+        target boundary condition at x = b
+    i_a: integer
+        index of known boundary condition at x = a.  i.e.
+        if dirichlet conditions : i_a = 0 and u(a) is known  
+        if neumann conditions   : i_a = 1 and u'(a) is known
+        the complementary index is adjusted to match the boundary condition at b
+    i_b: integer
+        index of known boundary condition at x = b. i.e.
+        if dirichlet conditions : i_b = 0 and u(b) is known  
+        if neumann conditions   : i_b = 1 and u'(b) is known
+        the complementary index is ignored at b
+    rtol:  float
+        relative tolerance
+    atol:  float
+        absolute tolerance
+        
+    returns:
+    --------
+    u: solution u(x) for x (uses dense_output from solve_ivp to interpolate solution onto x)
+    """
+    
+# YOUR CODE HERE
+
+    # Initial Conditions and guess
+    u0_rhs = u_b
+    u_lfs = u_a
+    
+    def convergence(guess):
+        u0 = [u_lfs, guess] 
+        sol = solve_ivp(f, [x[0], x[-1]], u0, rtol = rtol, atol = atol)
+        
+        u_end = sol.y[0,-1]
+        return numpy.max(numpy.abs(u_end - u0_rhs))
+    
+    sol = root_scalar(convergence,x0 = -1.0, x1 = 1.0,xtol=atol, rtol=rtol)
+    guess = sol.root
+    
+    u0 = [u_lfs, guess]
+            
+    sol = solve_ivp(f, [x[0], x[-1]], u0, dense_output=True, rtol = rtol, atol = atol)
+    u = sol.sol(x)[0]
+    
+    return u
+
+# Define f for Silicon
+def f0(x, v):
+    return numpy.array([v[1], v[0] / Lp[0] ** 2 - GL / diff_const[0]])
+
+# Define f for Germanium
+def f1(x, v):
+    return numpy.array([v[1], v[0] / Lp[1] ** 2 - GL / diff_const[1]])
+
+# Define f for Gallium Arsenide
+def f2(x, v):
+    return numpy.array([v[1], v[0] / Lp[2] ** 2 - GL / diff_const[2]])
+    
+# Define initial conditions for Silicon
+u_a = - Si_p0
+u_b = 0
+sol_Si = numpy.empty([3,len(x)])
+
+# Solution for Silicon
+for i in range(3):
+    sol_Si[i,:] = shoot_bvp(f0, x, u_a[i], u_b, rtol=1.e-4, atol=1.e-3)
+    
+fig = plt.figure(figsize=(16,6))
+axes = fig.add_subplot(1, 1, 1)
+axes.plot(x, sol_Si[0], label="u_sol")
+#Exact solution
+p = lambda x: tau[0] * GL - (GL * tau[0] + Si_p0[0]) * numpy.exp(- x / numpy.sqrt(diff_const[0] * tau[0]))
+#axes.plot(x, p(x), label="u_true")
+
+#axes.set_ylim((-Si_p0[0], 0))
+#axes.set_xlim((0., 0.1))
+axes.set_xlabel("x")
+axes.set_ylabel("$p$")
+axes.legend(loc='best')
+axes.grid()  
